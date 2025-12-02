@@ -3,26 +3,35 @@ LABEL maintainer="combssm@gmail.com"
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-ENV pip_packages "ansible cryptography"
+ENV pip_packages "ansible"
 
 # Install dependencies.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-       sudo systemd systemd-sysv \
-       build-essential wget libffi-dev libssl-dev procps \
-       python3-pip python3-dev python3-setuptools python3-wheel python3-apt \
-       iproute2 dbus curl gpg \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -Rf /usr/share/doc && rm -Rf /usr/share/man \
-    && apt-get clean
+       apt-utils \
+       build-essential \
+       locales \
+       libffi-dev \
+       libssl-dev \
+       libyaml-dev \
+       python3-dev \
+       python3-setuptools \
+       python3-pip \
+       python3-yaml \
+       software-properties-common \
+       rsyslog systemd systemd-cron sudo iproute2 \
+    && apt-get clean \
+    && rm -Rf /var/lib/apt/lists/* \
+    && rm -Rf /usr/share/doc && rm -Rf /usr/share/man
+RUN sed -i 's/^\($ModLoad imklog\)/#\1/' /etc/rsyslog.conf
 
-# Allow installing stuff to system Python (PEP 668).
-RUN rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED
+# Fix potential UTF-8 errors with ansible-test.
+RUN locale-gen en_US.UTF-8
 
-# Upgrade pip to latest version.
-RUN pip3 install --upgrade pip
+# Remove useless Python environment warning flag.
+RUN sudo rm -rf /usr/lib/python3.12/EXTERNALLY-MANAGED
 
-# Install Ansible via pip.
+# Install Ansible via Pip.
 RUN pip3 install $pip_packages
 
 COPY initctl_faker .
@@ -32,8 +41,10 @@ RUN chmod +x initctl_faker && rm -fr /sbin/initctl && ln -s /initctl_faker /sbin
 RUN mkdir -p /etc/ansible
 RUN echo "[local]\nlocalhost ansible_connection=local" > /etc/ansible/hosts
 
-# Make sure systemd doesn't start agettys on tty[1-6].
-RUN rm -f /lib/systemd/system/multi-user.target.wants/getty.target
+# Remove unnecessary getty and udev targets that result in high CPU usage when using
+# multiple containers with Molecule (https://github.com/ansible/molecule/issues/1104)
+RUN rm -f /lib/systemd/system/systemd*udev* \
+  && rm -f /lib/systemd/system/getty.target
 
-VOLUME ["/sys/fs/cgroup"]
+VOLUME ["/sys/fs/cgroup", "/tmp", "/run"]
 CMD ["/lib/systemd/systemd"]
